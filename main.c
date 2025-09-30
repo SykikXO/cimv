@@ -1,8 +1,3 @@
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
-#include "xdg-shell-client-protocol.h"
-#include "xdg-shell-protocol.c"
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,9 +7,15 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
+
+#include "async.h" // Your async image loading function declarations
+#include "xdg-shell-client-protocol.h" // Protocol header
+
+#include "stb/stb_image.h"
 
 struct xdg_wm_base *sh;
 struct xdg_toplevel *top;
@@ -60,6 +61,15 @@ void create_buffer(int w, int h) {
   close(fd);
 }
 
+void start_async_image_load(const char *path) {
+  static pthread_t thread;
+  static ImageLoadArgs args;
+
+  strncpy(args.imgpath, path, sizeof(args.imgpath) - 1);
+  args.imgpath[sizeof(args.imgpath) - 1] = '\0';
+
+  pthread_create(&thread, NULL, load_image_thread, &args);
+}
 void draw_img() {
   // const char *imgpath = "/home/sykik/.config/walls/catpuccin_samurai.png";
   char imgpath[256];
@@ -102,11 +112,40 @@ void draw_img() {
 }
 
 struct wl_callback_listener cb_list;
-void frame_new(void *data, struct wl_callback *cb, uint32_t a) {
+
+void frame_new(void *data, struct wl_callback *cb, uint32_t time) {
   wl_callback_destroy(cb);
   cb = wl_surface_frame(surf);
   wl_callback_add_listener(cb, &cb_list, 0);
-  draw_img();
+
+  pthread_mutex_lock(&img_mutex);
+  if (loaded_img != NULL) {
+    // if needed, create or resize buffer for loaded_imgw, loaded_imgh
+    if (!pixl) {
+      create_buffer(loaded_imgw, loaded_imgh);
+    }
+
+    // copy pixels in ARGB format
+    for (int y = 0; y < loaded_imgh; y++) {
+      for (int x = 0; x < loaded_imgw; x++) {
+        uint8_t *s = loaded_img + 4 * (y * loaded_imgw + x);
+        uint8_t *d = pixl + 4 * (y * loaded_imgw + x);
+
+        d[0] = s[2]; // B
+        d[1] = s[1]; // G
+        d[2] = s[0]; // R
+        d[3] = s[3]; // A
+      }
+    }
+
+    wl_surface_attach(surf, bfr, 0, 0);
+    wl_surface_damage_buffer(surf, 0, 0, loaded_imgw, loaded_imgh);
+    wl_surface_commit(surf);
+
+    stbi_image_free(loaded_img);
+    loaded_img = NULL; // mark as drawn
+  }
+  pthread_mutex_unlock(&img_mutex);
 }
 struct wl_callback_listener cb_list = {.done = frame_new};
 
