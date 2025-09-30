@@ -18,11 +18,14 @@ void *load_image_thread(void *args) {
   if (!img) {
     fprintf(stderr, "Failed to load image in thread: %s\n",
             stbi_failure_reason());
+    free(load_args);
     return NULL;
   }
 
   pthread_mutex_lock(&img_mutex);
   loaded_img = img;
   pthread_mutex_unlock(&img_mutex);
+
+  free(load_args);
   return NULL;
 }

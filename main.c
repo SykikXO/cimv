@@ -1,3 +1,6 @@
+#include "async.h"
+#include "stb/stb_image.h"
+#include "xdg-shell-client-protocol.h"
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -7,15 +10,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
-
-#include "async.h" // Your async image loading function declarations
-#include "xdg-shell-client-protocol.h" // Protocol header
-
-#include "stb/stb_image.h"
 
 struct xdg_wm_base *sh;
 struct xdg_toplevel *top;
@@ -27,6 +24,33 @@ char *imgpath;
 
 uint8_t *pixl;
 int imgw, imgh; // dimensions of the loaded image
+
+#include <pthread.h>
+#include <stdio.h>
+#include <string.h>
+
+// Function running in a separate thread continuously asking for image paths
+void *input_thread_func(void *arg) {
+  char path[256];
+  while (1) {
+    printf("Enter image path: ");
+    if (fgets(path, sizeof(path), stdin) == NULL) {
+      fprintf(stderr, "Failed to read image path\n");
+      continue;
+    }
+
+    // Strip newline from fgets
+    path[strcspn(path, "\n")] = 0;
+
+    if (strlen(path) == 0) {
+      continue; // skip empty inputs
+    }
+
+    // Call your async loader start function for new input path
+    start_async_image_load(path);
+  }
+  return NULL;
+}
 
 int32_t allocate_shm(uint64_t size) {
   static int counter = 0;
@@ -62,13 +86,21 @@ void create_buffer(int w, int h) {
 }
 
 void start_async_image_load(const char *path) {
-  static pthread_t thread;
-  static ImageLoadArgs args;
+  pthread_t thread;
+  ImageLoadArgs *args = malloc(sizeof(ImageLoadArgs));
+  if (!args) {
+    fprintf(stderr, "Failed to allocate memory for image load args.\n");
+    return;
+  }
+  strncpy(args->imgpath, path, sizeof(args->imgpath) - 1);
+  args->imgpath[sizeof(args->imgpath) - 1] = '\0';
 
-  strncpy(args.imgpath, path, sizeof(args.imgpath) - 1);
-  args.imgpath[sizeof(args.imgpath) - 1] = '\0';
-
-  pthread_create(&thread, NULL, load_image_thread, &args);
+  if (pthread_create(&thread, NULL, load_image_thread, args) != 0) {
+    fprintf(stderr, "Failed to create image load thread.\n");
+    free(args);
+    return;
+  }
+  pthread_detach(thread);
 }
 void draw_img() {
   // const char *imgpath = "/home/sykik/.config/walls/catpuccin_samurai.png";
@@ -209,6 +241,11 @@ int main() {
   xdg_toplevel_add_listener(top, &top_list, 0);
   xdg_toplevel_set_title(top, "Wayland Image Viewer");
   wl_surface_commit(surf);
+  pthread_t input_thread;
+  if (pthread_create(&input_thread, NULL, input_thread_func, NULL) != 0) {
+    fprintf(stderr, "Failed to create input thread\n");
+    return 1;
+  }
 
   while (wl_display_dispatch(disp)) {
   }
