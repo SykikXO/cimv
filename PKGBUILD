@@ -1,5 +1,5 @@
 # Maintainer: SykikXO <xo.sykik@gmail.com>
-pkgname=fey
+pkgname=fey-git
 pkgver=1.0
 pkgrel=1
 pkgdesc="A high-performance, minimalistic Wayland image viewer with GIF and physics support"
