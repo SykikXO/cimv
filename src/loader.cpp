@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 
 void load_image(struct app_state *app, size_t index) {
   if (index >= app->images.size()) return;
@@ -115,43 +116,42 @@ void load_image(struct app_state *app, size_t index) {
 }
 
 void scan_directory(struct app_state *app, const char *filepath) {
-  std::string full_path;
-  if (filepath[0] == '/') {
-      full_path = filepath;
+  namespace fs = std::filesystem;
+  fs::path p(filepath);
+  fs::path dir_path;
+  fs::path target_filename;
+
+  if (fs::is_regular_file(p)) {
+    dir_path = p.parent_path();
+    target_filename = p.filename();
+  } else if (fs::is_directory(p)) {
+    dir_path = p;
   } else {
-      char cwd[1024];
-      if (getcwd(cwd, sizeof(cwd))) {
-          full_path = std::string(cwd) + "/" + filepath;
-      } else {
-          full_path = filepath;
-      }
+    dir_path = p.parent_path();
+    target_filename = p.filename();
   }
 
-  size_t last_slash = full_path.find_last_of("/");
-  std::string dir = (last_slash == std::string::npos) ? "." : full_path.substr(0, last_slash);
-  std::string filename = (last_slash == std::string::npos) ? full_path : full_path.substr(last_slash + 1);
-
-  DIR *dp = opendir(dir.c_str());
-  if (!dp) return;
+  if (dir_path.empty()) dir_path = ".";
+  dir_path = fs::absolute(dir_path);
 
   app->images.clear();
-  struct dirent *entry;
-  while ((entry = readdir(dp))) {
-    std::string name = entry->d_name;
-    std::string ext = "";
-    size_t last_dot = name.find_last_of(".");
-    if (last_dot != std::string::npos) ext = name.substr(last_dot);
+  if (!fs::exists(dir_path)) return;
+
+  for (const auto& entry : fs::directory_iterator(dir_path)) {
+    if (!entry.is_regular_file()) continue;
+    
+    std::string ext = entry.path().extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
     if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp" || ext == ".gif") {
-      app->images.push_back(dir + "/" + name);
+      app->images.push_back(entry.path().string());
     }
   }
-  closedir(dp);
+
   std::sort(app->images.begin(), app->images.end());
 
   for (size_t i = 0; i < app->images.size(); ++i) {
-    if (app->images[i].find(filename) != std::string::npos) {
+    if (fs::path(app->images[i]).filename() == target_filename) {
       app->current_index = i;
       break;
     }

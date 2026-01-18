@@ -1,6 +1,6 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -Wall -Wextra -pthread -Isrc -Isrc/protocols $(shell pkg-config --cflags cairo imlib2)
+CXXFLAGS = -std=c++17 -Wall -Wextra -pthread -Isrc -Isrc/protocols $(shell pkg-config --cflags cairo imlib2)
 CFLAGS = -Wall -Wextra -Isrc/protocols $(shell pkg-config --cflags cairo imlib2)
 
 # Linker flags
